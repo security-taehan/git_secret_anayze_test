@@ -1,0 +1,55 @@
+name: Secret Scan
+
+on:
+  workflow_call:
+
+env:
+  FAIL_ON_FINDINGS: false
+
+jobs:
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+
+      - name: Run Gitleaks
+        id: scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Check Gitleaks results
+        if: always()
+        run: |
+          if [ -f results.sarif ]; then
+            COUNT=$(jq '.runs[0].results | length' results.sarif || echo 0)
+
+            if [ "$COUNT" -gt 0 ]; then
+              echo "::warning::🔴 Gitleaks found $COUNT secrets"
+
+              if [ "$FAIL_ON_FINDINGS" = "true" ]; then
+                echo "❌ Failing workflow because secrets were found"
+                exit 1
+              fi
+
+            else
+              echo "::notice::✅ Gitleaks found no secrets"
+            fi
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-${{ github.event.repository.name }}
+          path: results.sarif
+          if-no-files-found: ignore
